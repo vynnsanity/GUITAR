@@ -1,42 +1,115 @@
 package com.thankgod.guitartutor
 
 import android.Manifest
-import android.content.Context
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.media.*
+import android.media.AudioFormat
+import android.media.AudioManager
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import android.media.ToneGenerator
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.interaction.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.*
-import androidx.compose.foundation.text.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
-import androidx.compose.ui.draw.*
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.*
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.*
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.*
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
+import kotlin.math.abs
+import androidx.core.content.edit
 
 val PixelFont = FontFamily(Font(R.font.pixel_font))
 
@@ -53,9 +126,10 @@ fun getChordImage(c: String) = when(c) {
 }
 
 class MainActivity : ComponentActivity() {
+    @SuppressLint("UseKtx")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val sharedPref = getSharedPreferences("GuitarTutorPrefs", Context.MODE_PRIVATE)
+        val sharedPref = getSharedPreferences("GuitarTutorPrefs", MODE_PRIVATE)
         val savedName = sharedPref.getString("USERNAME", "") ?: ""
         val savedFavorites = sharedPref.getStringSet("FAVORITES", emptySet()) ?: emptySet()
         val savedIsDark = sharedPref.getBoolean("IS_DARK_MODE", false)
@@ -77,9 +151,14 @@ class MainActivity : ComponentActivity() {
                 try {
                     val diff = (sdf.parse(todayStr)!!.time - sdf.parse(lastOpen)!!.time) / (1000 * 60 * 60 * 24)
                     currentStreak = if (diff == 1L) currentStreak + 1 else 1
-                } catch (e: Exception) { currentStreak = 1 }
+                } catch (_: Exception) { currentStreak = 1 }
             } else currentStreak = 1
-            sharedPref.edit().putString("LAST_OPEN_DATE", todayStr).putInt("STREAK_COUNT", currentStreak).apply()
+            sharedPref.edit {
+                putString("LAST_OPEN_DATE", todayStr).putInt(
+                    "STREAK_COUNT",
+                    currentStreak
+                )
+            }
         }
 
         setContent {
@@ -114,7 +193,8 @@ class MainActivity : ComponentActivity() {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text("Dark Mode", fontFamily = PixelFont, fontSize = 18.sp, color = colors.text)
                                         Spacer(modifier = Modifier.weight(1f))
-                                        Switch(checked = isDarkMode, onCheckedChange = { isDarkMode = it; sharedPref.edit().putBoolean("IS_DARK_MODE", it).apply() }, colors = SwitchDefaults.colors(checkedThumbColor = colors.primary, checkedTrackColor = Color.White))
+                                        Switch(checked = isDarkMode,
+                                            onCheckedChange = { isDarkMode = it; sharedPref.edit {putBoolean("IS_DARK_MODE", it)} }, colors = SwitchDefaults.colors(checkedThumbColor = colors.primary, checkedTrackColor = Color.White))
                                     }
                                     Spacer(modifier = Modifier.weight(1f))
                                     BouncyButton("RESET APP", { showResetDialog = true }, height = 50.dp, buttonColor = Color(0xFFE06666), textColor = Color.White, colors = colors)
@@ -224,7 +304,7 @@ fun MenuScreen(name: String, streak: Int, colors: AppColors, hasSeenTutorial: Bo
                 BouncyButton("Tune-it up!", onTuneUpClick, Modifier.fillMaxWidth(), 80.dp, colors = colors)
             }
         }
-        if (!hasSeenTutorial) TutorialOverlay(1, 2, { "↓ INTERACTIVE ↓\n\nLearn chords, see finger placements, and practice with the metronome!" }, { "↓ TUNE-IT UP ↓\n\nLet our AI listen to your strumming and check if you're in tune!" }, { "↑ SETTINGS ↑\n\nSwipe from the left edge or tap the menu icon to access Dark Mode and Reset options." }, onTutorialComplete, colors)
+        if (!hasSeenTutorial) TutorialOverlay(1, 2, { "↓ INTERACTIVE ↓\n\nLearn chords, see finger placements, and practice with the metronome!" }, { "↓ TUNE-IT-UP ↓\n\nLet our AI listen to your strumming and check if you're in tune!" }, { "↑ SETTINGS ↑\n\nSwipe from the left edge or tap the menu icon to access Dark Mode and Reset options." }, onTutorialComplete, colors)
     }
 }
 
@@ -313,87 +393,151 @@ fun ChordDetailScreen(chordName: String, colors: AppColors, onBackClick: () -> U
     }
 }
 
-// 🎸 NEW: Audio Detection Logic
+// 🎸 Algorithmic Pitch Detection for Chords
 @Composable
 fun TuneUpScreen(colors: AppColors, onBackClick: () -> Unit) {
     val context = LocalContext.current
     var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasPermission = it }
 
-    LaunchedEffect(Unit) { if (!hasPermission) launcher.launch(Manifest.permission.RECORD_AUDIO) }
-
+    var audioData by remember { mutableStateOf(FloatArray(512)) }
     var detectedChord by remember { mutableStateOf<String?>(null) }
-    val allChords = listOf("A Major", "A Minor", "B Major", "B Minor", "C Major", "C Minor", "D Major", "D Minor", "E Major", "E Minor", "F Major", "F Minor", "G Major", "G Minor")
+    var chordConfidence by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(Unit) { if (!hasPermission) launcher.launch(Manifest.permission.RECORD_AUDIO) }
 
     LaunchedEffect(hasPermission) {
         if (hasPermission) {
             withContext(Dispatchers.IO) {
-                try {
-                    val bufferSize = AudioRecord.getMinBufferSize(8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-                    val audioRecord = AudioRecord(MediaRecorder.AudioSource.MIC, 8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
-                    audioRecord.startRecording()
-                    val buffer = ShortArray(bufferSize)
+                val sampleRate = 44100
+                val bufferSize = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+                val audioRecord = AudioRecord(MediaRecorder.AudioSource.MIC, sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
+                val buffer = ShortArray(bufferSize)
+                audioRecord.startRecording()
 
-                    while (isActive) {
-                        val readSize = audioRecord.read(buffer, 0, bufferSize)
-                        var maxAmplitude = 0
-                        for (i in 0 until readSize) {
-                            val amp = Math.abs(buffer[i].toInt())
-                            if (amp > maxAmplitude) maxAmplitude = amp
+                while (isActive) {
+                    val readSize = audioRecord.read(buffer, 0, bufferSize)
+                    if (readSize > 0) {
+                        var maxAmp = 0
+                        val visualData = FloatArray(512)
+                        for (i in 0 until 512.coerceAtMost(readSize)) {
+                            val amp = buffer[i].toInt()
+                            if (abs(amp) > maxAmp) maxAmp = abs(amp)
+                            visualData[i] = amp / 32768f
                         }
+                        audioData = visualData
 
-                        // If a loud sound is detected (strum)
-                        if (maxAmplitude > 15000 && detectedChord == null) {
-                            val randomChord = allChords.random()
-                            withContext(Dispatchers.Main) { detectedChord = randomChord }
-                            delay(3000) // Show for 3 seconds
-                            withContext(Dispatchers.Main) { detectedChord = null }
+                        if (maxAmp > 8000 && detectedChord == null) {
+                            val (pitch, conf) = estimatePitch(buffer, readSize, sampleRate)
+                            val chord = matchPitchToChord(pitch)
+                            if (chord != null) {
+                                withContext(Dispatchers.Main) { 
+                                    detectedChord = chord
+                                    chordConfidence = conf
+                                }
+                                delay(2500)
+                                withContext(Dispatchers.Main) { 
+                                    detectedChord = null
+                                    chordConfidence = 0f
+                                }
+                            }
                         }
                     }
-                    audioRecord.release()
-                } catch (e: Exception) { e.printStackTrace() }
+                }
+                audioRecord.release()
             }
         }
     }
-
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(1f, 1.05f, infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulseScale")
-    var dotCount by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { while(true) { delay(500); dotCount = (dotCount + 1) % 4 } }
 
     Box(Modifier.fillMaxSize()) {
         Image(painterResource(R.drawable.bg_guitar), "Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(colors.overlay))
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
             TopBackButton(onBackClick, colors)
-            Spacer(Modifier.height(60.dp))
+            Spacer(Modifier.height(40.dp))
 
             if (!hasPermission) {
-                Text("Microphone Access Required", fontFamily = PixelFont, fontSize = 24.sp, color = colors.text, textAlign = TextAlign.Center)
+                Text("MIC REQUIRED", fontFamily = PixelFont, fontSize = 24.sp, color = colors.text)
                 Spacer(Modifier.height(24.dp))
-                BouncyButton("Grant Permission", { launcher.launch(Manifest.permission.RECORD_AUDIO) }, height = 55.dp, colors = colors)
+                BouncyButton("GRANT ACCESS", { launcher.launch(Manifest.permission.RECORD_AUDIO) }, height = 55.dp, colors = colors)
             } else {
+                Box(Modifier.fillMaxWidth().height(150.dp).padding(horizontal = 32.dp).background(colors.surface.copy(0.3f), RoundedCornerShape(16.dp)).border(2.dp, colors.primary.copy(0.5f), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.fillMaxSize().padding(16.dp)) {
+                        val width = size.width
+                        val height = size.height
+                        val step = width / audioData.size
+                        for (i in 0 until audioData.size - 1) {
+                            drawLine(colors.primary, Offset(i * step, height / 2 + audioData[i] * height / 2), Offset((i + 1) * step, height / 2 + audioData[i + 1] * height / 2), strokeWidth = 2.dp.toPx())
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(40.dp))
+
                 if (detectedChord == null) {
-                    Box(Modifier.size(200.dp).scale(pulseScale).shadow(4.dp, RoundedCornerShape(16.dp)).background(colors.primary, RoundedCornerShape(16.dp)), Alignment.Center) {
-                        Image(painterResource(R.drawable.ear_icon), "Listening", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(32.dp))
-                    }
-                    Spacer(Modifier.height(40.dp))
-                    Text("Try to strum a\nchord", textAlign = TextAlign.Center, fontFamily = PixelFont, fontSize = 28.sp, color = colors.text, lineHeight = 34.sp)
-                    Spacer(Modifier.weight(1f))
-                    Text(".".repeat(dotCount + 1), fontFamily = PixelFont, fontSize = 42.sp, fontWeight = FontWeight.Bold, color = colors.text, modifier = Modifier.padding(bottom = 60.dp))
-                } else {
-                    Text("YOU PLAYED:", fontFamily = PixelFont, fontSize = 24.sp, color = colors.textSecondary)
+                    Text("STRUM A CHORD", textAlign = TextAlign.Center, fontFamily = PixelFont, fontSize = 28.sp, color = colors.text)
                     Spacer(Modifier.height(16.dp))
-                    Text(detectedChord!!, fontFamily = PixelFont, fontSize = 42.sp, color = colors.primary)
-                    Spacer(Modifier.height(32.dp))
-                    Box(Modifier.size(200.dp).background(Color.White, RoundedCornerShape(16.dp)).padding(16.dp), Alignment.Center) {
-                        Image(painterResource(getChordImage(detectedChord!!)), "Detected Chord", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                    CircularProgressIndicator(color = colors.primary, modifier = Modifier.size(48.dp))
+                } else {
+                    Text("DETECTED:", fontFamily = PixelFont, fontSize = 20.sp, color = colors.textSecondary)
+                    Text(detectedChord!!, fontFamily = PixelFont, fontSize = 48.sp, color = colors.primary)
+                    
+                    Spacer(Modifier.height(8.dp))
+                    Text("CONFIDENCE: ${(chordConfidence * 100).toInt()}%", fontFamily = PixelFont, fontSize = 14.sp, color = colors.textSecondary)
+                    Box(Modifier.width(200.dp).height(12.dp).clip(RoundedCornerShape(6.dp)).background(colors.surface)) {
+                        Box(Modifier.fillMaxWidth(chordConfidence).fillMaxHeight().background(if (chordConfidence > 0.7f) Color(0xFF9EBA90) else if (chordConfidence > 0.4f) Color(0xFFF1C40F) else Color(0xFFE06666)))
                     }
-                    Spacer(Modifier.weight(1f))
-                    Text("Listening again in a moment...", fontFamily = PixelFont, fontSize = 16.sp, color = colors.textSecondary, modifier = Modifier.padding(bottom = 60.dp))
+
+                    Spacer(Modifier.height(24.dp))
+                    Box(Modifier.size(180.dp).background(Color.White, RoundedCornerShape(16.dp)).padding(12.dp)) {
+                        Image(painterResource(getChordImage(detectedChord!!)), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                    }
                 }
             }
         }
+    }
+}
+
+private fun estimatePitch(buffer: ShortArray, size: Int, sampleRate: Int): Pair<Float, Float> {
+    var maxCorr = 0f
+    var bestLag = -1
+    var sumSq = 0f
+    for (i in 0 until size) {
+        val v = buffer[i].toFloat() / 32768f
+        sumSq += v * v
+    }
+    val rmsSq = sumSq / size
+    if (rmsSq < 0.0001f) return 0f to 0f
+
+    for (lag in (sampleRate / 500)..(sampleRate / 70)) {
+        var corr = 0f
+        var count = 0
+        for (i in 0 until (size - lag)) {
+            corr += (buffer[i].toFloat() / 32768) * (buffer[i + lag].toFloat() / 32768)
+            count++
+        }
+        val avgCorr = if (count > 0) corr / count else 0f
+        if (avgCorr > maxCorr) {
+            maxCorr = avgCorr
+            bestLag = lag
+        }
+    }
+    val freq = if (bestLag > 0) sampleRate.toFloat() / bestLag else 0f
+    val confidence = if (rmsSq > 0) (maxCorr / rmsSq).coerceIn(0f, 1f) else 0f
+    return freq to confidence
+}
+
+private fun matchPitchToChord(frequency: Float): String? {
+    return when (frequency) {
+        in 80f..85f -> "E Major"
+        in 105f..115f -> "A Major"
+        in 140f..155f -> "D Major"
+        in 190f..200f -> "G Major"
+        in 125f..135f -> "C Major"
+        in 80f..85f -> "E Minor"
+        in 105f..115f -> "A Minor"
+        in 140f..155f -> "D Minor"
+        else -> null
     }
 }
 
@@ -420,7 +564,6 @@ fun MetronomeScreen(hasSeenTutorial: Boolean, colors: AppColors, onTutorialCompl
     val handleTap = {
         val now = System.currentTimeMillis()
         val newTapTimes = if (tapTimes.isNotEmpty() && now - tapTimes.last() > 2000) listOf(now) else (tapTimes + now).takeLast(4)
-        tapTimes = newTapTimes
         if (newTapTimes.size >= 2) {
             val avgInterval = (newTapTimes.last() - newTapTimes.first()) / (newTapTimes.size - 1)
             if (avgInterval > 0) bpm = (60000f / avgInterval).coerceIn(60f, 200f)
@@ -501,8 +644,20 @@ fun QuizScreen(highScore: Int, colors: AppColors, hasSeenTutorial: Boolean, onTu
                 options.chunked(2).forEach { rowOptions ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         rowOptions.forEach { option ->
-                            val btnColor = if (showResult) { when { option == targetChord -> Color(0xFF9EBA90); option == selectedOption -> Color(0xFFE06666); else -> colors.button } } else colors.button
-                            val txtColor = if (showResult) { when { option == targetChord -> Color.Black; option == selectedOption -> Color.White; else -> colors.text } } else colors.text
+                            val btnColor = if (showResult) {
+                                when (option) {
+                                    targetChord -> Color(0xFF9EBA90)
+                                    selectedOption -> Color(0xFFE06666)
+                                    else -> colors.button
+                                }
+                            } else colors.button
+                            val txtColor = if (showResult) {
+                                when (option) {
+                                    targetChord -> Color.Black
+                                    selectedOption -> Color.White
+                                    else -> colors.text
+                                }
+                            } else colors.text
                             BouncyButton(option, { handleAnswer(option) }, Modifier.weight(1f), 60.dp, btnColor, txtColor, colors)
                         }
                     }
