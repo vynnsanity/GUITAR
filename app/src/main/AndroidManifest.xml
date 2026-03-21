@@ -2,7 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 🎸 ADDED MICROPHONE PERMISSION HERE -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
@@ -21,10 +20,16 @@
             android:theme="@style/Theme.GuitarTutor">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".InteractiveActivity" android:exported="false" />
+        <activity android:name=".TuneUpActivity" android:exported="false" />
+        <activity android:name=".ChordtionaryActivity" android:exported="false" />
+        <activity android:name=".MetronomeActivity" android:exported="false" />
+        <activity android:name=".QuizActivity" android:exported="false" />
+        <activity android:name=".StrummingActivity" android:exported="false" />
+        <activity android:name=".TarsosActivity" android:exported="false" />
     </application>
 
 </manifest>
