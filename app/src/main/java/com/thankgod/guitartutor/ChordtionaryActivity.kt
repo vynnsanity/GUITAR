@@ -1,8 +1,6 @@
 package com.thankgod.guitartutor
 
-import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -26,7 +24,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
@@ -46,7 +43,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -133,7 +129,6 @@ fun ChordtionaryScreen(favoriteChords: Set<String>, colors: AppColors, onToggleF
 @Composable
 fun ChordDetailScreen(chordName: String, colors: AppColors, onBackClick: () -> Unit) {
     var isLeftyMode by remember { mutableStateOf(false) }
-    val context = LocalContext.current
     Box(Modifier.fillMaxSize()) {
         Image(painterResource(R.drawable.bg_guitar), "Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(colors.overlay))
@@ -142,8 +137,7 @@ fun ChordDetailScreen(chordName: String, colors: AppColors, onBackClick: () -> U
             Column(Modifier.fillMaxSize().padding(start = 32.dp, end = 32.dp, bottom = 48.dp, top = 16.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                     Row(Modifier.background(colors.button, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)).padding(24.dp, 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(chordName, fontFamily = PixelFont, fontSize = 22.sp, color = colors.text); Spacer(Modifier.width(12.dp))
-                        Icon(Icons.Filled.PlayArrow, "Play", tint = colors.text, modifier = Modifier.size(28.dp).clickable { Toast.makeText(context, "Playing $chordName...", Toast.LENGTH_SHORT).show() })
+                        Text(chordName, fontFamily = PixelFont, fontSize = 22.sp, color = colors.text)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
                         Text("Lefty", fontFamily = PixelFont, fontSize = 16.sp, color = colors.text); Spacer(Modifier.width(8.dp))

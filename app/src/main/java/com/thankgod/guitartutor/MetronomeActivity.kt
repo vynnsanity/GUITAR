@@ -26,14 +26,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -42,7 +35,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.edit
 import kotlinx.coroutines.delay
 
 class MetronomeActivity : ComponentActivity() {
@@ -79,27 +71,56 @@ fun MetronomeScreen(hasSeenTutorial: Boolean, colors: AppColors, onTutorialCompl
     var bpm by remember { mutableFloatStateOf(120f) }
     var isPlaying by remember { mutableStateOf(false) }
     var flash by remember { mutableStateOf(false) }
+    
+    // Tap Tempo State
     var tapTimes by remember { mutableStateOf(listOf<Long>()) }
+    
     val toneGenerator = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 100) }
 
-    DisposableEffect(Unit) { onDispose { toneGenerator.release() } }
+    DisposableEffect(Unit) {
+        onDispose { toneGenerator.release() }
+    }
 
     LaunchedEffect(isPlaying, bpm) {
         if (isPlaying) {
             while (true) {
-                flash = true; toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 35); delay(100); flash = false
+                flash = true
+                toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 35)
+                delay(100)
+                flash = false
                 val delayTime = (60000 / bpm.toLong()) - 100
                 if (delayTime > 0) delay(delayTime)
             }
-        } else { flash = false }
+        } else {
+            flash = false
+        }
     }
 
+    // Fixed Tap Tempo Logic
     val handleTap = {
         val now = System.currentTimeMillis()
-        val newTapTimes = if (tapTimes.isNotEmpty() && now - tapTimes.last() > 2000) listOf(now) else (tapTimes + now).takeLast(4)
-        if (newTapTimes.size >= 2) {
-            val avgInterval = (newTapTimes.last() - newTapTimes.first()) / (newTapTimes.size - 1)
-            if (avgInterval > 0) bpm = (60000f / avgInterval).coerceIn(60f, 200f)
+        
+        // If more than 2 seconds since last tap, start a new sequence
+        val updatedTaps = if (tapTimes.isNotEmpty() && (now - tapTimes.last() > 2000)) {
+            listOf(now)
+        } else {
+            (tapTimes + now).takeLast(8) // Keep up to 8 taps for better accuracy
+        }
+        
+        tapTimes = updatedTaps
+        
+        if (updatedTaps.size >= 2) {
+            // Calculate average interval between consecutive taps
+            var totalInterval = 0L
+            for (i in 1 until updatedTaps.size) {
+                totalInterval += (updatedTaps[i] - updatedTaps[i - 1])
+            }
+            val avgInterval = totalInterval / (updatedTaps.size - 1)
+            
+            if (avgInterval > 0) {
+                val newBpm = (60000f / avgInterval).coerceIn(60f, 200f)
+                bpm = newBpm
+            }
         }
     }
 
@@ -119,7 +140,8 @@ fun MetronomeScreen(hasSeenTutorial: Boolean, colors: AppColors, onTutorialCompl
                     Slider(bpm, { bpm = it }, valueRange = 60f..200f, colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = colors.primary))
                     Spacer(Modifier.height(24.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        BouncyButton(if (isPlaying) "STOP" else "PLAY", { isPlaying = !isPlaying }, Modifier.weight(1f), 60.dp, colors = colors); Spacer(Modifier.width(16.dp))
+                        BouncyButton(if (isPlaying) "STOP" else "PLAY", { isPlaying = !isPlaying }, Modifier.weight(1f), 60.dp, colors = colors)
+                        Spacer(Modifier.width(16.dp))
                         BouncyButton("TAP", handleTap, Modifier.weight(1f), 60.dp, colors = colors)
                     }
                 }

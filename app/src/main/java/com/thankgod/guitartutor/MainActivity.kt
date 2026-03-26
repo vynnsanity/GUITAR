@@ -123,8 +123,6 @@ class MainActivity : ComponentActivity() {
                                         Switch(checked = isDarkMode,
                                             onCheckedChange = { isDarkMode = it; sharedPref.edit {putBoolean("IS_DARK_MODE", it)} }, colors = SwitchDefaults.colors(checkedThumbColor = colors.primary, checkedTrackColor = Color.White))
                                     }
-                                    Spacer(modifier = Modifier.height(24.dp))
-                                    BouncyButton("TARSOS ANALYZER", { context.startActivity(Intent(context, TarsosActivity::class.java)) }, height = 50.dp, colors = colors)
                                     Spacer(modifier = Modifier.weight(1f))
                                     BouncyButton("RESET APP", { showResetDialog = true }, height = 50.dp, buttonColor = Color(0xFFE06666), textColor = Color.White, colors = colors)
                                     Spacer(modifier = Modifier.height(32.dp))

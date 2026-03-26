@@ -4,20 +4,26 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -28,8 +34,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.log2
+
+enum class PracticeState { MENU, TUNER, SONG_SELECT, PRACTICE }
+
+data class Song(val name: String, val chords: List<String>)
 
 class TuneUpActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,16 +62,19 @@ class TuneUpActivity : ComponentActivity() {
 }
 
 @Composable
-fun TuneUpTarsosScreen(colors: AppColors, onBackClick: () -> Unit) {
+fun TuneUpTarsosScreen(colors: AppColors, onExit: () -> Unit) {
     val context = LocalContext.current
     var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasPermission = it }
 
+    // Navigation State
+    var currentScreen by remember { mutableStateOf(PracticeState.MENU) }
+    var selectedSong by remember { mutableStateOf<Song?>(null) }
+
     // Audio Analysis State
     var frequency by remember { mutableFloatStateOf(0f) }
     var noteName by remember { mutableStateOf("--") }
-    var chordName by remember { mutableStateOf("Detecting...") }
-    var isTunerMode by remember { mutableStateOf(true) }
+    var detectedChord by remember { mutableStateOf("--") }
     
     // Tuning state
     var targetString by remember { mutableStateOf("--") }
@@ -69,7 +83,15 @@ fun TuneUpTarsosScreen(colors: AppColors, onBackClick: () -> Unit) {
 
     val chordDetector = remember { ChordDetector() }
 
-    // Helper to update tuning state
+    val songs = remember {
+        listOf(
+            Song("Basic G-C-D", listOf("G Major", "C Major", "D Major")),
+            Song("Minor Soul", listOf("A Minor", "D Minor", "E Minor")),
+            Song("The Blues", listOf("A Major", "D Major", "E Major")),
+            Song("Pop Starter", listOf("C Major", "G Major", "A Minor", "F Major"))
+        )
+    }
+
     val updateTuningState: (Float) -> Unit = { pitch ->
         var closestString = "--"
         var minDiff = Float.MAX_VALUE
@@ -88,7 +110,6 @@ fun TuneUpTarsosScreen(colors: AppColors, onBackClick: () -> Unit) {
         if (targetFreq > 0) {
             val cents = (1200 * log2(pitch.toDouble() / targetFreq.toDouble())).toFloat()
             centsOff = cents.coerceIn(-50f, 50f)
-            
             tuningStatus = when {
                 cents > 3f -> "SHARP"
                 cents < -3f -> "FLAT"
@@ -101,15 +122,14 @@ fun TuneUpTarsosScreen(colors: AppColors, onBackClick: () -> Unit) {
         AudioProcessor { pitch, probability ->
             if (probability > 0.85f && pitch > 0) {
                 frequency = pitch
-                val note = PitchToNote.getNoteName(pitch)
-                noteName = note
+                noteName = PitchToNote.getNoteName(pitch)
                 
-                if (isTunerMode) {
+                if (currentScreen == PracticeState.TUNER) {
                     updateTuningState(pitch)
                 } else {
-                    val detectedChord = chordDetector.processNote(note)
-                    if (detectedChord != null) {
-                        chordName = detectedChord
+                    val result = chordDetector.processNote(noteName)
+                    if (result != null) {
+                        detectedChord = result
                     }
                 }
             }
@@ -128,86 +148,191 @@ fun TuneUpTarsosScreen(colors: AppColors, onBackClick: () -> Unit) {
         onDispose { audioProcessor.stop() }
     }
 
+    BackHandler {
+        when (currentScreen) {
+            PracticeState.MENU -> onExit()
+            PracticeState.TUNER -> currentScreen = PracticeState.MENU
+            PracticeState.SONG_SELECT -> currentScreen = PracticeState.MENU
+            PracticeState.PRACTICE -> currentScreen = PracticeState.SONG_SELECT
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         Image(painterResource(R.drawable.bg_guitar), "Background", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(colors.overlay))
         
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            TopBackButton(onBackClick, colors)
-            
-            Spacer(Modifier.height(16.dp))
-            
-            // Mode Toggle
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Tuner", color = if (isTunerMode) colors.primary else colors.textSecondary, fontFamily = PixelFont, fontSize = 16.sp)
-                Spacer(Modifier.width(12.dp))
-                Switch(
-                    checked = !isTunerMode, 
-                    onCheckedChange = { 
-                        isTunerMode = !it 
-                        chordDetector.clear()
-                        chordName = "Detecting..."
-                    },
-                    colors = SwitchDefaults.colors(checkedThumbColor = colors.primary)
+        Column(Modifier.fillMaxSize()) {
+            TopBackButton({
+                when (currentScreen) {
+                    PracticeState.MENU -> onExit()
+                    PracticeState.TUNER -> currentScreen = PracticeState.MENU
+                    PracticeState.SONG_SELECT -> currentScreen = PracticeState.MENU
+                    PracticeState.PRACTICE -> currentScreen = PracticeState.SONG_SELECT
+                }
+            }, colors)
+
+            AnimatedContent(
+                targetState = currentScreen,
+                modifier = Modifier.fillMaxSize(),
+                label = "ScreenTransition"
+            ) { state ->
+                when (state) {
+                    PracticeState.MENU -> PracticeMenu(colors) { currentScreen = it }
+                    PracticeState.TUNER -> TunerModule(noteName, targetString, tuningStatus, centsOff, frequency, colors)
+                    PracticeState.SONG_SELECT -> SongSelectModule(songs, colors) {
+                        selectedSong = it
+                        currentScreen = PracticeState.PRACTICE
+                    }
+                    PracticeState.PRACTICE -> SongPracticeModule(selectedSong!!, detectedChord, colors)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PracticeMenu(colors: AppColors, onNavigate: (PracticeState) -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("PRACTICE TOOL", fontFamily = PixelFont, fontSize = 32.sp, color = colors.primary)
+        Spacer(Modifier.height(48.dp))
+        BouncyButton(
+            text = "INSTRUMENT TUNER",
+            onClick = { onNavigate(PracticeState.TUNER) },
+            modifier = Modifier.fillMaxWidth(0.8f),
+            height = 80.dp,
+            colors = colors
+        )
+        Spacer(Modifier.height(32.dp))
+        BouncyButton(
+            text = "SONG PRACTICE",
+            onClick = { onNavigate(PracticeState.SONG_SELECT) },
+            modifier = Modifier.fillMaxWidth(0.8f),
+            height = 80.dp,
+            colors = colors
+        )
+    }
+}
+
+@Composable
+fun TunerModule(
+    note: String,
+    target: String,
+    status: String,
+    centsOff: Float,
+    freq: Float,
+    colors: AppColors
+) {
+    Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("GUITAR TUNER", fontFamily = PixelFont, fontSize = 24.sp, color = colors.primary)
+        Spacer(Modifier.height(40.dp))
+        Box(
+            Modifier.fillMaxWidth().height(320.dp).background(colors.surface.copy(0.9f), RoundedCornerShape(24.dp)).border(2.dp, colors.primary.copy(0.5f), RoundedCornerShape(24.dp)).padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("TARGET: $target", fontFamily = PixelFont, fontSize = 20.sp, color = colors.textSecondary)
+                Text(note, fontFamily = PixelFont, fontSize = 80.sp, color = colors.primary, fontWeight = FontWeight.Bold)
+                Text(
+                    status, 
+                    fontFamily = PixelFont, 
+                    fontSize = 28.sp, 
+                    color = if (status == "IN TUNE") Color(0xFF4CAF50) else if (status == "SHARP" || status == "FLAT") Color(0xFFE91E63) else colors.text
                 )
-                Spacer(Modifier.width(12.dp))
-                Text("Chords", color = if (!isTunerMode) colors.primary else colors.textSecondary, fontFamily = PixelFont, fontSize = 16.sp)
-            }
-
-            Spacer(Modifier.height(40.dp))
-
-            if (!hasPermission) {
-                Text("MIC REQUIRED", fontFamily = PixelFont, fontSize = 24.sp, color = colors.text)
-                Spacer(Modifier.height(24.dp))
-                BouncyButton("GRANT ACCESS", { launcher.launch(Manifest.permission.RECORD_AUDIO) }, height = 55.dp, colors = colors)
-            } else {
-                // Main Content Card
-                Box(
-                    Modifier
-                        .fillMaxWidth(0.85f)
-                        .height(300.dp)
-                        .background(colors.surface.copy(0.9f), RoundedCornerShape(24.dp))
-                        .border(2.dp, colors.primary.copy(0.5f), RoundedCornerShape(24.dp))
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (isTunerMode) {
-                            Text("TARGET: $targetString", fontFamily = PixelFont, fontSize = 20.sp, color = colors.textSecondary)
-                            Text(noteName, fontFamily = PixelFont, fontSize = 72.sp, color = colors.primary, fontWeight = FontWeight.Bold)
-                            Text(
-                                tuningStatus, 
-                                fontFamily = PixelFont, 
-                                fontSize = 28.sp, 
-                                color = if (tuningStatus == "IN TUNE") Color(0xFF4CAF50) else if (tuningStatus == "SHARP" || tuningStatus == "FLAT") Color(0xFFE91E63) else colors.text
-                            )
-                            
-                            Spacer(Modifier.height(32.dp))
-                            
-                            // Tuner Meter
-                            TunerMeter(centsOff = centsOff, colors = colors)
-                        } else {
-                            Text("DETECTED CHORD", fontFamily = PixelFont, fontSize = 20.sp, color = colors.textSecondary)
-                            Spacer(Modifier.height(16.dp))
-                            Text(chordName, fontFamily = PixelFont, fontSize = 42.sp, color = colors.primary, textAlign = TextAlign.Center, lineHeight = 50.sp)
-                            
-                            Spacer(Modifier.height(24.dp))
-                            Text("Current Note: $noteName", fontFamily = PixelFont, fontSize = 16.sp, color = colors.textSecondary)
-                        }
-                    }
-                }
-
                 Spacer(Modifier.height(40.dp))
-                
-                Text("Frequency: ${"%.1f".format(frequency)} Hz", fontFamily = PixelFont, fontSize = 16.sp, color = colors.text)
-                
-                if (!isTunerMode && chordName != "Detecting...") {
-                    Spacer(Modifier.height(24.dp))
-                    Box(Modifier.size(120.dp).background(Color.White, RoundedCornerShape(12.dp)).padding(8.dp)) {
-                        Image(painterResource(getChordImage(chordName)), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                    }
+                TunerMeter(centsOff = centsOff, colors = colors)
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+        Text("Frequency: ${"%.1f".format(freq)} Hz", fontFamily = PixelFont, fontSize = 16.sp, color = colors.text)
+    }
+}
+
+@Composable
+fun SongSelectModule(songs: List<Song>, colors: AppColors, onSongSelected: (Song) -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("SELECT A SONG", fontFamily = PixelFont, fontSize = 24.sp, color = colors.primary)
+        Spacer(Modifier.height(32.dp))
+        songs.forEach { song ->
+            BouncyButton(
+                text = song.name,
+                onClick = { onSongSelected(song) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                height = 60.dp,
+                colors = colors
+            )
+        }
+    }
+}
+
+@Composable
+fun SongPracticeModule(song: Song, detectedChord: String, colors: AppColors) {
+    var currentIndex by remember { mutableIntStateOf(0) }
+    val targetChord = song.chords[currentIndex]
+    val isCorrect = detectedChord == targetChord
+
+    LaunchedEffect(isCorrect) {
+        if (isCorrect) {
+            // Give user time to see "PERFECT"
+            delay(1500)
+            if (currentIndex < song.chords.size - 1) {
+                currentIndex++
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(song.name.uppercase(), fontFamily = PixelFont, fontSize = 20.sp, color = colors.primary)
+        Spacer(Modifier.height(24.dp))
+        
+        // Chord sequence display
+        LazyRow(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.Center) {
+            itemsIndexed(song.chords) { index, chord ->
+                Box(
+                    Modifier.padding(horizontal = 8.dp).clip(RoundedCornerShape(8.dp))
+                        .background(if (index == currentIndex) colors.primary else colors.surface.copy(0.5f))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text(chord, fontFamily = PixelFont, fontSize = 14.sp, color = if (index == currentIndex) colors.background else colors.text)
                 }
             }
+        }
+
+        Spacer(Modifier.height(40.dp))
+
+        Box(
+            Modifier.fillMaxWidth().height(300.dp).background(if (isCorrect) Color(0xFF4CAF50).copy(0.2f) else colors.surface.copy(0.9f), RoundedCornerShape(24.dp))
+                .border(3.dp, if (isCorrect) Color(0xFF4CAF50) else colors.primary.copy(0.5f), RoundedCornerShape(24.dp)).padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("TARGET CHORD", fontFamily = PixelFont, fontSize = 18.sp, color = colors.textSecondary)
+                Text(targetChord, fontFamily = PixelFont, fontSize = 48.sp, color = if (isCorrect) Color(0xFF2E7D32) else colors.primary, textAlign = TextAlign.Center)
+                
+                Spacer(Modifier.height(32.dp))
+                
+                if (isCorrect) {
+                    Text("PERFECT!", fontFamily = PixelFont, fontSize = 32.sp, color = Color(0xFF2E7D32))
+                } else {
+                    Text("HEARING: $detectedChord", fontFamily = PixelFont, fontSize = 18.sp, color = colors.textSecondary)
+                    Text("Keep strumming...", fontFamily = PixelFont, fontSize = 14.sp, color = colors.text.copy(0.6f))
+                }
+            }
+        }
+        
+        Spacer(Modifier.height(24.dp))
+        
+        if (isCorrect) {
+            Text("Nice job! Moving to next chord...", fontFamily = PixelFont, fontSize = 14.sp, color = Color(0xFF2E7D32))
+        }
+
+        // Image Hint
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.size(100.dp).background(Color.White, RoundedCornerShape(12.dp)).padding(8.dp)) {
+            Image(painterResource(getChordImage(targetChord)), null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
         }
     }
 }
